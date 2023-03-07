@@ -2,6 +2,7 @@ const express = require('express');
 const mysql = require('mysql');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const { secret, port } = require('./config');
 
 // 创建MySQL连接
 const connection = mysql.createConnection({
@@ -16,14 +17,6 @@ const app = express();
 
 // 处理POST请求体
 app.use(express.json());
-
-// 设置允许跨域
-app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    next();
-});
-
 
 // 注册接口
 app.post('/api/register', (req, res) => {
@@ -99,7 +92,7 @@ app.post('/api/login', (req, res) => {
             }
 
             // 生成JWT
-            const token = jwt.sign({ userId: user.id }, 'web_disk');
+            const token = jwt.sign({ userId: user.id }, secret);
 
             res.send(`{"code": 0, "message":"登录成功！", "token": "${token}"}`);
         });
@@ -107,6 +100,8 @@ app.post('/api/login', (req, res) => {
 });
 
 // 监听3000端口
-app.listen(3000, () => {
+app.listen(port, () => {
     console.log('服务器已启动');
 });
+
+
