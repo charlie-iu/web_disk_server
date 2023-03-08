@@ -10,7 +10,7 @@ const connection = mysql.createConnection({
     user: 'root',
     password: 'xxxxxx',
     database: 'web_disk'
-});
+}); 
 
 // 创建Express实例
 const app = express();

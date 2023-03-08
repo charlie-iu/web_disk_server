@@ -19,4 +19,4 @@ async function query(sql, params) {
     }
 }
 
-module.exports = { pool, query };
+module.exports = { pool, query }; 
