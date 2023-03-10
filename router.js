@@ -6,10 +6,11 @@ const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const Path = require('path');
 const fs = require('fs');
-const uuid = require('uuid');
 const { secret } = require('./config');
 const { pool } = require('./db');
 
+const app = express();
+app.use(express.json());
 
 // 创建MySQL连接
 const connection = mysql.createConnection({
@@ -101,9 +102,58 @@ router.post('/login', (req, res) => {
     });
 });
 
+// 退出登录接口
+router.post('/logout', (req, res) => {
+    const token = req.headers.authorization?.split(' ')[1];
+
+    if (!token) {
+        return res.status(401).send('未提供token');
+    }
+
+    try {
+        const decodedToken = jwt.verify(token, secret);
+
+        // 查询用户信息
+        connection.query(`SELECT * FROM users WHERE id='${decodedToken.userId}'`, (err, result) => {
+            if (err) {
+                console.error(err);
+                return res.status(500).send('服务器错误');
+            }
+
+            if (result.length === 0) {
+                return res.status(401).send('用户不存在');
+            }
+
+            // 在这里执行退出登录操作
+            res.send({ code: 0, message: '退出登录成功', data: null });
+        });
+    } catch (error) {
+        return res.status(401).send('无效的token');
+    }
+});
+
+// 上传前告诉前端上传路径
+const dir = 'D:/uploads';
+
+// router.post('/getUploadPath',(req, res) => {
+//     const token = req.headers.authorization?.split(' ')[1];
+
+//     if (!token) {
+//         return res.status(401).send('未提供token');
+//     }
+
+//     try {
+//         res.send({ "code": 0, "path": `${dir}` })
+        
+//     } catch (error) {
+//         console.log(error);
+        
+//     }
+
+// });
+
 // 上传接口
 // 检查目录是否存在，如果不存在就创建目录
-const dir = './upload';
 if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, (err) => {
         if (err) {
@@ -114,7 +164,6 @@ if (!fs.existsSync(dir)) {
     });
 }
 
-console.log('目录是否存在：', fs.existsSync(dir));
 if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir);
 }
@@ -122,12 +171,10 @@ if (!fs.existsSync(dir)) {
 // 配置multer上传中间件
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, Path.join(__dirname, dir)); // 指定上传文件的存储路径
+        cb(null, dir); // 指定上传文件的存储路径
     },
     filename: (req, file, cb) => { // 修改为filename
-        const extname = Path.extname(file.originalname); // 获取上传文件的扩展名
-        const name = uuid.v4() + extname; // 使用uuid生成唯一的文件名
-        cb(null, name); // 将文件名传递给回调函数
+        cb(null, file.originalname); // 将文件名传递给回调函数
     },
 });
 const upload = multer({ storage });
@@ -142,11 +189,12 @@ router.post('/upload', upload.single('file'), async (req, res) => {
         // 从 payload 中获取用户 id
         const userId = payload.userId;
         // 将文件信息保存到数据库中
-        const { originalname, size, path, mimetype } = req.file;
+        const { filename, size, path, mimetype } = req.file;
+        console.log('reqqqqqq',req);
 
         const user_id = userId; // 获取上传文件的用户id
         const insertSql = 'INSERT INTO files (user_id, name, size, type, path) VALUES (?, ?, ?, ?, ?)';
-        const values = [user_id, originalname, size, mimetype, Path.relative(__dirname, path)];
+        const values = [user_id, filename, size, mimetype, Path.relative(__dirname, path)];
         const [result] = await pool.query(insertSql, values);
         const fileId = result.insertId;
         console.log('fileId', fileId);
@@ -187,6 +235,7 @@ router.post('/getAllFiles', function (req, res) {
                 .query(sqlSelect)
                 .then(([rows]) => {
                     res.json({
+                        code: 0,
                         total,
                         data: rows
                     });
