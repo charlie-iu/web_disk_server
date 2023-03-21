@@ -28,14 +28,15 @@ router.post('/register', (req, res) => {
 
     // 查询用户名是否已存在
     connection.query(`SELECT COUNT(*) as COUNT FROM users WHERE username='${username}'`, (err, result) => {
+        console.log(result);
         if (err) {
             console.error(err);
             res.status(500).send(`{"code": 3, "message":"服务器错误"}`);
             return;
         }
 
-        if (result[0].count > 0) {
-            res.status(400).send('用户名已存在');
+        if (result[0].COUNT > 0) {
+            res.status(409).send(`{"code": 4, "message":"用户名已存在"}`);
             return;
         }
 
