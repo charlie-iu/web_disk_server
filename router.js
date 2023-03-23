@@ -8,9 +8,11 @@ const Path = require('path');
 const fs = require('fs');
 const { secret } = require('./config');
 const { pool } = require('./db');
+const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // 创建MySQL连接
 const connection = mysql.createConnection({
@@ -134,24 +136,7 @@ router.post('/logout', (req, res) => {
 });
 
 // 上传前告诉前端上传路径
-const dir = 'D:/uploads';
-
-// router.post('/getUploadPath',(req, res) => {
-//     const token = req.headers.authorization?.split(' ')[1];
-
-//     if (!token) {
-//         return res.status(401).send('未提供token');
-//     }
-
-//     try {
-//         res.send({ "code": 0, "path": `${dir}` })
-        
-//     } catch (error) {
-//         console.log(error);
-        
-//     }
-
-// });
+const dir = 'D:\\uploads';
 
 // 上传接口
 // 检查目录是否存在，如果不存在就创建目录
@@ -181,6 +166,7 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 // 接收文件上传请求
+
 router.post('/upload', upload.single('file'), async (req, res) => {
     try {
         // 从 HTTP 请求的头部 Authorization 字段中获取 token
@@ -191,23 +177,22 @@ router.post('/upload', upload.single('file'), async (req, res) => {
         const userId = payload.userId;
         // 将文件信息保存到数据库中
         const { filename, size, path, mimetype } = req.file;
-        console.log('reqqqqqq',req);
 
         const user_id = userId; // 获取上传文件的用户id
-        const insertSql = 'INSERT INTO files (user_id, name, size, type, path) VALUES (?, ?, ?, ?, ?)';
-        const values = [user_id, filename, size, mimetype, Path.relative(__dirname, path)];
-        const [result] = await pool.query(insertSql, values);
-        const fileId = result.insertId;
+        const fileId = uuidv4(); // 生成随机的uuid
+        const insertSql = 'INSERT INTO files (id, user_id, name, size, type, path) VALUES (?, ?, ?, ?, ?, ?)';
+        const values = [fileId, user_id, filename, size, mimetype, Path.relative(dir, path)];
+        await pool.query(insertSql, values);
         console.log('fileId', fileId);
         const selectSql = 'SELECT * FROM files WHERE id = ?';
         const selectValues = [fileId];
         const fileResult = await pool.query(selectSql, selectValues);
 
         if (fileResult[0] && fileResult[0].length > 0) {
-            res.json(fileResult[0]);;
-            console.log('文件上传成功', fileResult[0])
+            res.json(fileResult[0]);
+            // console.log('文件上传成功', fileResult[0])
         } else {
-            console.log('失败');
+            // console.log('失败');
             res.status(404).json({ message: '文件不存在' });
         }
 
@@ -217,6 +202,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
         res.status(500).json({ message: '上传文件失败' });
     }
 });
+
 
 // 获取所有文件接口
 router.post('/getAllFiles', function (req, res) {
@@ -250,6 +236,35 @@ router.post('/getAllFiles', function (req, res) {
             console.error(error);
             res.status(500).send('Internal Server Error');
         });
+});
+
+// 下载
+router.get('/download/:id', async function (req, res) {
+    try {
+        const id = req.params.id;
+        const selectSql = 'SELECT name, path FROM files WHERE id = ?';
+        const selectValues = [id];
+        const fileResult = await pool.query(selectSql, selectValues);
+        if (!fileResult[0] || fileResult[0].length === 0) {
+            res.status(404).send('File not found');
+            return;
+        }
+        const fileName = fileResult[0].name;
+        const file = `${dir}\\${fileResult[0].path}`;
+        console.log('1111111111',file);
+        if (!fs.existsSync(file)) {
+            res.status(404).send('File not found');
+            return;
+        }
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.setHeader('Content-Disposition', 'attachment; filename=' + encodeURIComponent(fileName));
+
+        const fileStream = fs.createReadStream(file);
+        fileStream.pipe(res);
+    } catch (error) {
+        console.error(error);
+        res.status(500).send('Server error');
+    }
 });
 
 module.exports = router;
