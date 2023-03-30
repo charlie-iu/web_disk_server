@@ -9,14 +9,22 @@ const pool = mysql.createPool({
     queueLimit: 0,
 });
 
-async function query(sql, params) {
+async function query(sql, params, callback) {
     const connection = await pool.getConnection();
     try {
         const [rows] = await connection.query(sql, params);
+        if (typeof callback === 'function') {
+            callback(null, rows);
+        }
         return rows;
+    } catch (err) {
+        if (typeof callback === 'function') {
+            callback(err);
+        }
+        throw err;
     } finally {
         connection.release();
     }
 }
 
-module.exports = { pool, query }; 
+module.exports = query; 

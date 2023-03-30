@@ -7,20 +7,17 @@ const multer = require('multer');
 const Path = require('path');
 const fs = require('fs');
 const { secret } = require('./config');
-const { pool } = require('./db');
+const Query = require('./db');
 const { v4: uuidv4 } = require('uuid');
+const bodyParser = require('body-parser');
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+// 解析POST请求的请求体
+app.use(bodyParser.json());
 
-// 创建MySQL连接
-const connection = mysql.createConnection({
-    host: 'localhost',
-    user: 'root',
-    password: 'admin',
-    database: 'web_disk'
-});
+
 
 
 // 注册接口
@@ -29,11 +26,9 @@ router.post('/register', (req, res) => {
     const { username, password, nickname } = req.body;
 
     // 查询用户名是否已存在
-    connection.query(`SELECT COUNT(*) as COUNT FROM users WHERE username='${username}'`, (err, result) => {
-        console.log(result);
+    Query(`SELECT COUNT(*) as COUNT FROM users WHERE username='${username}'`, (err, result) => {
         if (err) {
-            console.error(err);
-            res.status(500).send(`{"code": 3, "message":"服务器错误"}`);
+            res.status(500).send(`{"code": 3, "message":"Internal server error"}`);
             return;
         }
 
@@ -45,15 +40,13 @@ router.post('/register', (req, res) => {
         // 加密密码
         bcrypt.hash(password, 10, (err, hash) => {
             if (err) {
-                console.error(err);
-                res.status(500).send('{"code": 2, "message":"服务器错误"}');
+                res.status(500).send('{"code": 2, "message":"Internal server error"}');
                 return;
             }
 
             // 插入用户信息到数据库
-            connection.query(`INSERT INTO users (username, password, nickname) VALUES ('${username}', '${hash}', '${nickname}')`, (err, result) => {
+            Query(`INSERT INTO users (username, password, nickname) VALUES ('${username}', '${hash}', '${nickname}')`, (err, result) => {
                 if (err) {
-                    console.error(err);
                     res.status(500).send(`{"code": 1, "message":"${err.sqlMessage}"}`);
                     return;
                 }
@@ -70,10 +63,9 @@ router.post('/login', (req, res) => {
     const { username, password } = req.body;
 
     // 查询用户信息
-    connection.query(`SELECT * FROM users WHERE username='${username}'`, (err, result) => {
+    Query("SELECT * FROM users WHERE username = ? ", [username], (err, result) => {
         if (err) {
-            console.error(err);
-            res.status(500).send(`{"code": 3, "message":"服务器错误"}:`);
+            res.status(500).send(`{"code": 3, "message":"Internal server error"}:`);
             return;
         }
 
@@ -87,7 +79,6 @@ router.post('/login', (req, res) => {
         // 比较密码
         bcrypt.compare(password, user.password, (err, isMatch) => {
             if (err) {
-                console.error(err);
                 res.status(500).send(`比较密码出错:`);
                 return;
             }
@@ -117,10 +108,9 @@ router.post('/logout', (req, res) => {
         const decodedToken = jwt.verify(token, secret);
 
         // 查询用户信息
-        connection.query(`SELECT * FROM users WHERE id='${decodedToken.userId}'`, (err, result) => {
+        Query(`SELECT * FROM users WHERE id='?'`, [decodedToken.userId], (err, result) => {
             if (err) {
-                console.error(err);
-                return res.status(500).send('服务器错误');
+                return res.status(500).send('Internal server error');
             }
 
             if (result.length === 0) {
@@ -166,11 +156,14 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 // 接收文件上传请求
-
-router.post('/upload', upload.single('file'), async (req, res) => {
+router.post('/upload', upload.single('file'), (req, res) => {
     try {
         // 从 HTTP 请求的头部 Authorization 字段中获取 token
         const token = req.headers.authorization.split(' ')[1];
+        if (!token) {
+            res.status(401).send('No token');
+            return;
+        }
         // 解析 token，获取 payload
         const payload = jwt.verify(token, secret);
         // 从 payload 中获取用户 id
@@ -182,25 +175,41 @@ router.post('/upload', upload.single('file'), async (req, res) => {
         const fileId = uuidv4(); // 生成随机的uuid
         const insertSql = 'INSERT INTO files (id, user_id, name, size, type, path) VALUES (?, ?, ?, ?, ?, ?)';
         const values = [fileId, user_id, filename, size, mimetype, Path.relative(dir, path)];
-        await pool.query(insertSql, values);
-        console.log('fileId', fileId);
-        const selectSql = 'SELECT * FROM files WHERE id = ?';
-        const selectValues = [fileId];
-        const fileResult = await pool.query(selectSql, selectValues);
-
-        if (fileResult[0] && fileResult[0].length > 0) {
-            res.json(fileResult[0]);
-            // console.log('文件上传成功', fileResult[0])
-        } else {
-            // console.log('失败');
-            res.status(404).json({ message: '文件不存在' });
-        }
-
+        Query(insertSql, values, (err, result) => {
+            if (err) {
+                res.status(500).send('Internal Server Error')
+            }
+            const selectSql = 'SELECT * FROM files WHERE id = ?';
+            const selectValues = [fileId];
+            Query(selectSql, selectValues, (err, result) => {
+                if (err) {
+                    res.status(500).send('Internal Server Error')
+                }
+                if (result.length > 0) {
+                    res.status(200).json(result[0]);
+                } else {
+                    res.status(404).json({ message: '文件不存在' });
+                }
+            });
+        });
 
     } catch (error) {
-        console.error(error);
         res.status(500).json({ message: '上传文件失败' });
     }
+});
+
+// 错误处理中间件
+app.use((err, req, res, next) => {
+    if (err instanceof multer.MulterError) {
+        // multer 错误处理
+        res.status(400).json({ message: '上传文件失败' });
+    } else {
+        next(err);
+    }
+});
+// 其他错误处理中间件
+app.use((err, req, res, next) => {
+    res.status(500).json({ message: 'Internal server error' });
 });
 
 
@@ -212,60 +221,70 @@ router.post('/getAllFiles', function (req, res) {
 
     const sqlCount = 'SELECT COUNT(*) as count FROM files';
     const sqlSelect = `SELECT * FROM files LIMIT ${limit} OFFSET ${offset}`;
-
-    pool
-        .query(sqlCount)
-        .then(([rows]) => {
-            const total = rows[0].count;
-
-            pool
-                .query(sqlSelect)
-                .then(([rows]) => {
-                    res.json({
-                        code: 0,
-                        total,
-                        data: rows
-                    });
-                })
-                .catch((error) => {
-                    console.error(error);
-                    res.status(500).send('Internal Server Error');
-                });
+    Query(sqlCount, null, (err, result1) => {
+        if (err) {
+            return res.status(500).send('Internal server error');
+        }
+        const total = result1[0].count;
+        Query(sqlSelect, null, (err, result2) => {
+            if (err) {
+                return res.status(500).send('Internal server error');
+            }
+            res.status(200).json({
+                code: 0,
+                total,
+                data: result2
+            })
         })
-        .catch((error) => {
-            console.error(error);
-            res.status(500).send('Internal Server Error');
-        });
+
+    })
 });
 
 // 下载
-router.get('/download/:id', async function (req, res) {
+router.get('/download/:id', (req, res) => {
     try {
-        const id = req.params.id;
-        const selectSql = 'SELECT name, path FROM files WHERE id = ?';
-        const selectValues = [id];
-        const fileResult = await pool.query(selectSql, selectValues);
-        if (!fileResult[0] || fileResult[0].length === 0) {
-            res.status(404).send('File not found');
-            return;
-        }
-        const fileName = fileResult[0].name;
-        const file = `${dir}\\${fileResult[0].path}`;
-        console.log('1111111111',file);
-        if (!fs.existsSync(file)) {
-            res.status(404).send('File not found');
-            return;
-        }
-        res.setHeader('Content-Type', 'application/octet-stream');
-        res.setHeader('Content-Disposition', 'attachment; filename=' + encodeURIComponent(fileName));
-
-        const fileStream = fs.createReadStream(file);
-        fileStream.pipe(res);
-    } catch (error) {
-        console.error(error);
-        res.status(500).send('Server error');
+        const fileId = req.params.id;
+        Query('SELECT name FROM files WHERE id = ?', [fileId], (err, result) => {
+            // 单独下载
+            if (result && result.length === 1) {
+                const fileName = result[0].name;
+                const fileStream = fs.createReadStream(`${dir}/${fileName}`);
+                res.setHeader('Content-Disposition', `attachment; filename=${fileName}`);
+                res.download(`${dir}/${fileName}`, fileName);
+            }
+        });
+    } catch (err) {
+        res.status(500).send('Internal server error');
     }
 });
+
+// 删除
+router.post('/delete', (req, res) => {
+    const id = req.body.id;
+    // 从数据库中查询要删除的文件信息
+    Query('SELECT * FROM files WHERE id = ?', [id], (err, results) => {
+        if (err) {
+            res.status(500).json({ error: 'Internal server error' });
+            return;
+        }
+
+        // 如果找到了要删除的文件，则将其从数据库中删除
+        if (results.length > 0) {
+            Query('DELETE FROM files WHERE id = ?', [id], (err, results) => {
+                console.log(results);
+                if (err) {
+                    res.status(500).json({ error: 'Internal server error' });
+                    return;
+                }
+                res.status(200).json({ code: 0, message: 'done' });
+            });
+        } else {
+            res.status(404).json({ error: 'File not found' }); // 返回404状态码表示没有找到要删除的文件
+        }
+    });
+});
+
+
 
 module.exports = router;
 
