@@ -284,6 +284,31 @@ router.post('/delete', (req, res) => {
     });
 });
 
+// 重命名
+router.post('/rename', (req, res) => {
+    const {id, newName} = req.body;
+    Query('SELECT * FROM files WHERE id = ?', [id], (err, result) => {
+        if (err) {
+            res.status(500).json({ error: 'Internal server error' });
+            return;
+        }
+        const fileName = result[0].name;
+        const fileExtension = fileName.split('.').pop();
+
+        if(result.length > 0) {
+            Query('UPDATE files SET name = ? WHERE id = ?;', [newName + '.' + fileExtension, id], (err, result2) => {
+                if (err) {
+                    res.status(500).json({ error: 'Internal server error' });
+                    return;
+                }
+                res.status(200).json({code: 0, message: '重命名成功！'});
+            });
+        } else {
+            res.status(404).send('404 Not Found');
+        }
+    });
+});
+
 
 
 module.exports = router;
