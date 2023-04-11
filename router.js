@@ -101,7 +101,7 @@ router.post('/logout', (req, res) => {
     const token = req.headers.authorization?.split(' ')[1];
 
     if (!token) {
-        return res.status(401).send('未提供token');
+        return res.status(401).send('无效token');
     }
 
     try {
@@ -307,6 +307,45 @@ router.post('/rename', (req, res) => {
             res.status(404).send('404 Not Found');
         }
     });
+});
+
+// 查询图片类型
+router.post('/pic', (req, res) => {
+    Query('SELECT * FROM files WHERE type LIKE "image/%"', [], (err, result) => {
+        if (err) {
+            res.status(500).json({ error: 'Internal server error' });
+            return;
+        }
+        if (result) {
+            res.status(200).json({ code: 0, data: result });
+        }
+    })
+});
+
+// 查询文档
+router.post('/text', (req, res) => {
+    Query('SELECT * FROM files WHERE type LIKE "text/%" OR type LIKE "application/%"', [], (err, result) => {
+        if (err) {
+            res.status(500).json({ error: 'Internal server error' });
+            return;
+        }
+        if (result > 0) {
+            res.status(200).json({ code: 0, data: result })
+        }
+    })
+});
+
+// 查询音视频
+router.post('/media', (req, res) => {
+    Query('SELECT * FROM files WHERE type LIKE "video/%" OR type LIKE "audio/%"', [], (err, result) => {
+        if (err) {
+            res.status(500).json({ error: 'Internal server error' });
+            return;
+        }
+        if (result > 0) {
+            res.status(200).json({ code: 0, data: result })
+        }
+    })
 });
 
 
